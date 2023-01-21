@@ -33,8 +33,8 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         self.scheduler = sched.scheduler(time.time, time.sleep)
         def update_task(scheduler): 
             self.update_state()
-            self.scheduler.enter(5, 1, update_task, (scheduler,))
-        self.scheduler.enter(5, 1, update_task, (self.scheduler,))
+            self.scheduled_event = self.scheduler.enter(5, 1, update_task, (scheduler,))
+        self.scheduled_event = self.scheduler.enter(5, 1, update_task, (self.scheduler,))
         start_new_thread(self.scheduler.run, ())
 
         self.Bind(wx.adv.EVT_TASKBAR_LEFT_DOWN, self.on_left_down)
@@ -79,9 +79,19 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         create_menu_item(menu, 'Exit', self.on_exit)
         return menu
 
-    def on_exit(self, event):
-        wx.CallAfter(self.Destroy)
+    def cleanup(self):
+        if self.scheduled_event:
+            try:
+                self.scheduler.cancel(self.scheduled_event)
+            except:
+                pass
+
+        self.RemoveIcon()
         self.frame.Close()
+        wx.CallAfter(self.Destroy)
+
+    def on_exit(self, event):
+        wx.Exit()
 
 def ask(parent=None, message='', default_value=''):
     dlg = wx.TextEntryDialog(parent, message, caption="Initial Setup", value=default_value)
@@ -96,12 +106,19 @@ class App(wx.App):
         self.frame = wx.Frame(None)
         self.SetTopWindow(self.frame)
 
+        # load config
         config = configparser.ConfigParser()
+        domains = ""
+        domain_entities_ignore = ""
         try:
             config.read('config.ini')
             token = config['HASS']['Token']
             api_url = config['HASS']['ApiUrl']
             entities = config['HASS']['Entities']
+            if config.has_option('HASS', 'Domains'):
+                domains = config['HASS']['Domains']
+            if config.has_option('HASS', 'DomainEntitiesIgnore'):
+                domain_entities_ignore = config['HASS']['DomainEntitiesIgnore']
         except KeyError:
             config['HASS'] = {}
             token = config['HASS']['Token'] = ask(message='Please enter your Home Assistant Long-Lived Access Token. You can generate it at https://my.home-assistant.io/redirect/profile/.')
@@ -110,13 +127,33 @@ class App(wx.App):
             with open('config.ini', 'w') as configfile:
                 config.write(configfile)
 
+        entities = [x for x in entities.split(',') if x != '']
+        domains = [x for x in domains.split(',') if x != '']
+        domain_entities_ignore = [x for x in domain_entities_ignore.split(',') if x != '']
+        
         # init hass client
         client = Client(api_url, token, cache_session=False)
 
-        for entity in entities.split(','):
-            TaskBarIcon(self.frame, entity, client)
+        # init tray icons
+        self.tray_icons = []
+        for domain in domains:
+            for entity in client.get_entities()[domain].entities:
+                full_id = f"{domain}.{entity}"
+                if full_id in domain_entities_ignore or full_id in entities:
+                    continue
+
+                self.tray_icons.append(TaskBarIcon(self.frame, full_id, client))
+
+        for entity in entities:
+            self.tray_icons.append(TaskBarIcon(self.frame, entity, client))
 
         return True
+
+    def OnExit(self):
+        for tray_icon in self.tray_icons:
+            tray_icon.cleanup()
+        
+        return 0
 
 def main():
     app = App(False)
