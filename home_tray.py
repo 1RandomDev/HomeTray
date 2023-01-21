@@ -1,6 +1,7 @@
 import wx.adv
+import wx.svg
 import wx
-
+import os.path
 import requests
 import json
 import sched
@@ -9,47 +10,12 @@ from _thread import start_new_thread
 from homeassistant_api import Client
 import configparser
 
-icon_base = "icons/"
-icons = {
-    "default": {
-        "on": "on.png",
-        "off": "off.png"
-    },
-    "phu:light-strip": {
-        "on": "phu-light-strip-on.png",
-        "off": "phu-light-strip-off.png"
-    },
-    "mdi:ceiling-light": {
-        "on": "mdi-ceiling-light-on.png",
-        "off": "mdi-ceiling-light-off.png"
-    },
-    "mdi:desk-lamp": {
-        "on": "mdi-desk-lamp-on.png",
-        "off": "mdi-desk-lamp-off.png"
-    },
-    "mdi:lightbulb-night": {
-        "on": "mdi-lightbulb-night-on.png",
-        "off": "mdi-lightbulb-night-off.png"
-    },
-
-}
-
 def get_icon_path(icon_name, state):
-    default_state = "off"
-    default_icon = "default"
-    if icon_name in icons.keys():
-        if state in icons[icon_name].keys():
-            return icon_base + icons[icon_name][state]
-
-        print(f"No icon of type \"{icon_name}\" for state \"{state}\"")
-        return icon_base + icons[icon_name][default_state]
-    
-    print(f"No icon of type \"{icon_name}\"")
-    if state in icons[default_icon].keys():
-        return icon_base + icons[default_icon][state]
-
-    return icon_base + icons[default_icon][default_state]
-
+    icon_path = "icons/"+icon_name.replace(":", "-")+"-"+state+".svg"
+    if os.path.isfile(icon_path):
+        return icon_path
+    else:
+        return "icons/default-"+state+".svg"
 
 def create_menu_item(menu, label, func):
     item = wx.MenuItem(menu, -1, label)
@@ -82,20 +48,22 @@ class TaskBarIcon(wx.adv.TaskBarIcon):
         entity_icon = entity.state.attributes["icon"] if "icon" in entity.state.attributes else "default"
         entity_name = entity.state.attributes["friendly_name"]
 
-        if entity_state == "on":
-            if "rgb_color" in entity.state.attributes:
-                rgb_color = entity.state.attributes["rgb_color"]
-            else:
-                rgb_color = [253, 213, 27]
-        else:
-            rgb_color = [0, 0, 0] # or [225, 225, 225]
+        # if entity_state == "on":
+        #     if "rgb_color" in entity.state.attributes:
+        #         rgb_color = entity.state.attributes["rgb_color"]
+        #     else:
+        #         rgb_color = [253, 213, 27]
+        # else:
+        #     rgb_color = [0, 0, 0] # or [225, 225, 225]
+        # TODO: change color of SVG or bitmap accordingly
 
         icon = get_icon_path(entity_icon, entity_state)
         self.set_icon(icon, entity_name)
         self.state = entity_state
 
     def set_icon(self, icon_path, tooltip):
-        icon = wx.Icon(icon_path)
+        svg = wx.svg.SVGimage.CreateFromFile(icon_path)
+        icon = svg.ConvertToScaledBitmap(wx.Size(30, 30))
         self.SetIcon(icon, tooltip)
 
     def on_left_down(self, event):
